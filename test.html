@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flexible Timetable Editor - Bản Sửa Lỗi Tự Động Lưu</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            --panel-bg: rgba(255, 255, 255, 0.85);
+            --primary-color: #4a00e0;
+            --danger-color: #ff7675;
+            --text-color: #2d3436;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            padding: 30px 15px;
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1300px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        h1 { font-size: 28px; color: #2c3e50; }
+
+        .status-save {
+            font-size: 13px;
+            color: #2ed573;
+            font-weight: 600;
+            margin-left: 10px;
+            display: none;
+        }
+
+        .toolbar {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            border-right: 2px solid #ddd;
+            padding-right: 12px;
+        }
+        .toolbar-group:last-child { border-right: none; }
+
+        input, select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            outline: none;
+            font-size: 14px;
+        }
+
+        input[type="color"] {
+            width: 40px;
+            height: 38px;
+            padding: 2px;
+            cursor: pointer;
+        }
+
+        .timetable-wrapper {
+            overflow-x: auto;
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            padding: 10px;
+        }
+
+        .timetable {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 900px;
+        }
+
+        .timetable th, .timetable td {
+            border: 1px solid #e0e0e0;
+            padding: 12px 10px;
+            text-align: center;
+            vertical-align: top;
+            position: relative;
+        }
+
+        .timetable th {
+            background-color: #6c5ce7;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            min-width: 120px;
+        }
+
+        .timetable th:first-child, .timetable td:first-child {
+            width: 160px;
+            min-width: 160px;
+            background-color: #f1f2f6;
+            color: #2d3436;
+            font-weight: bold;
+        }
+
+        [contenteditable="true"]:focus {
+            outline: 2px dashed #6c5ce7;
+            background: rgba(108, 92, 231, 0.1);
+            border-radius: 4px;
+        }
+
+        .btn-delete-node {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(255, 118, 117, 0.2);
+            color: #d63031;
+            border: none;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 11px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        th:hover .btn-delete-node, tr:hover .btn-delete-node { opacity: 1; }
+        .btn-delete-node:hover { background: #d63031; color: white; }
+
+        /* Hộp Sự Kiện */
+        .event-card {
+            background: #ffeaa7;
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: left;
+            word-wrap: break-word;
+        }
+
+        .event-card .delete-event {
+            position: absolute;
+            top: 2px;
+            right: 5px;
+            color: rgba(0,0,0,0.4);
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .event-card .delete-event:hover { color: #d63031; }
+
+        .btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+        }
+
+        .btn-add-event { background: #00b894; color: white; }
+        .btn-structure { background: #0984e3; color: white; }
+        .btn-pdf { background: #ff7675; color: white; }
+        .btn-img { background: #0bab4f; color: white; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-clear { background: #747d8c; color: white; }
+
+        .actions-group { display: flex; gap: 10px; align-items: center; }
+    </style>
+</head>
+<body>
+
+<div class="container" id="planner-content">
+    <header>
+        <div>
+            <h1>🗓️ Bản Biên Tập Thời Gian Biểu</h1>
+            <span id="save-status" class="status-save">✓ Đã tự động lưu dữ liệu</span>
+        </div>
+        <div class="actions-group" data-html2canvas-ignore="true">
+            <button class="btn btn-clear" onclick="resetToDefault()">Reset bảng</button>
+            <button class="btn btn-pdf" onclick="exportPDF()">Xuất PDF</button>
+            <button class="btn btn-img" onclick="exportImage()">Xuất Ảnh PNG</button>
+        </div>
+    </header>
+
+    <div class="toolbar" data-html2canvas-ignore="true">
+        <div class="toolbar-group">
+            <button class="btn btn-structure" onclick="addColumn()">➕ Thêm Cột Mới</button>
+            <button class="btn btn-structure" onclick="addRow()">➕ Thêm Hàng Giờ</button>
+        </div>
+
+        <div class="toolbar-group" style="border: none;">
+            <input type="text" id="event-title" placeholder="Nội dung công việc..." style="width: 200px;">
+            <select id="select-col-dest" title="Chọn Cột"></select>
+            <select id="select-row-dest" title="Chọn Hàng"></select>
+            <input type="color" id="event-color" value="#ffeaa7">
+            <button class="btn btn-add-event" onclick="addEventFromTools()">Thêm vào bảng</button>
+        </div>
+    </div>
+
+    <div class="timetable-wrapper">
+        <table class="timetable" id="main-table">
+            <thead>
+                <tr id="table-header-row"></tr>
+            </thead>
+            <tbody id="table-body-rows"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const defaultColumns = ["Khung Giờ", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu"];
+    const defaultRows = ["08:00 - 10:00", "10:00 - 12:00", "14:00 - 16:00", "16:00 - 18:00"];
+
+    let columnHeaders = [];
+    let rowHours = [];
+    let cellData = {}; // Object lưu data các ô: {"row-col": [{title, color}]}
+
+    const tableHeaderRow = document.getElementById('table-header-row');
+    const tableBodyRows = document.getElementById('table-body-rows');
+
+    function loadData() {
+        const storedCols = localStorage.getItem('v2_timetable_cols');
+        const storedRows = localStorage.getItem('v2_timetable_rows');
+        const storedCells = localStorage.getItem('v2_timetable_cells');
+        
+        if (storedCols && storedRows) {
+            columnHeaders = JSON.parse(storedCols);
+            rowHours = JSON.parse(storedRows);
+            cellData = storedCells ? JSON.parse(storedCells) : {};
+        } else {
+            columnHeaders = [...defaultColumns];
+            rowHours = [...defaultRows];
+            cellData = {};
+        }
+    }
+
+    function autoSave() {
+        localStorage.setItem('v2_timetable_cols', JSON.stringify(columnHeaders));
+        localStorage.setItem('v2_timetable_rows', JSON.stringify(rowHours));
+        
+        // Quét lại toàn bộ bảng để trích xuất data thô và lưu
+        let currentCells = {};
+        rowHours.forEach((_, rIdx) => {
+            for (let cIdx = 1; cIdx < columnHeaders.length; cIdx++) {
+                const targetRow = tableBodyRows.children[rIdx];
+                if (!targetRow) continue;
+                const cell = targetRow.children[cIdx];
+                if (!cell) continue;
+
+                let events = [];
+                const cards = cell.querySelectorAll('.event-card');
+                cards.forEach(card => {
+                    events.push({
+                        title: card.querySelector('strong').innerText,
+                        color: card.style.backgroundColor
+                    });
+                });
+                
+                // Lưu cả text gõ trực tiếp bên ngoài thẻ card
+                let textNode = "";
+                cell.childNodes.forEach(node => {
+                    if (node.nodeType === Node.TEXT_NODE) textNode += node.textContent;
+                });
+                textNode = textNode.trim();
+
+                if (events.length > 0 || textNode !== "") {
+                    currentCells[`${rIdx}-${cIdx}`] = { events, text: textNode };
+                }
+            }
+        });
+        
+        localStorage.setItem('v2_timetable_cells', JSON.stringify(currentCells));
+
+        const status = document.getElementById('save-status');
+        status.style.display = 'inline';
+        setTimeout(() => { status.style.display = 'none'; }, 1000);
+    }
+
+    function buildTable() {
+        // 1. Dựng Columns
+        tableHeaderRow.innerHTML = '';
+        columnHeaders.forEach((colName, colIndex) => {
+            const th = document.createElement('th');
+            if (colIndex === 0) {
+                th.innerHTML = `<div contenteditable="true" onblur="updateColName(${colIndex}, this.innerText)">${colName}</div>`;
+            } else {
+                th.innerHTML = `
+                    <div contenteditable="true" onblur="updateColName(${colIndex}, this.innerText)">${colName}</div>
+                    <button class="btn-delete-node" onclick="deleteColumn(${colIndex})">×</button>
+                `;
+            }
+            tableHeaderRow.appendChild(th);
+        });
+
+        // 2. Dựng Rows
+        tableBodyRows.innerHTML = '';
+        rowHours.forEach((rowName, rowIndex) => {
+            const tr = document.createElement('tr');
+            
+            const firstTd = document.createElement('td');
+            firstTd.innerHTML = `
+                <div contenteditable="true" onblur="updateRowName(${rowIndex}, this.innerText)">${rowName}</div>
+                <button class="btn-delete-node" onclick="deleteRow(${rowIndex})">×</button>
+            `;
+            tr.appendChild(firstTd);
+
+            for (let i = 1; i < columnHeaders.length; i++) {
+                const td = document.createElement('td');
+                td.className = 'timetable-cell';
+                td.setAttribute('contenteditable', 'true');
+                td.setAttribute('oninput', 'autoSave()');
+
+                // Đổ lại data cũ từ Object thô vào ô
+                const cellKey = `${rowIndex}-${i}`;
+                if (cellData[cellKey]) {
+                    if (cellData[cellKey].text) {
+                        td.appendChild(document.createTextNode(cellData[cellKey].text));
+                    }
+                    if (cellData[cellKey].events) {
+                        cellData[cellKey].events.forEach(ev => {
+                            td.appendChild(renderCardElement(ev.title, ev.color));
+                        });
+                    }
+                }
+                tr.appendChild(td);
+            }
+            tableBodyRows.appendChild(tr);
+        });
+
+        updateToolDropdowns();
+    }
+
+    function renderCardElement(title, color) {
+        const card = document.createElement('div');
+        card.className = 'event-card';
+        card.setAttribute('contenteditable', 'false');
+        card.style.backgroundColor = color;
+        card.style.color = getContrastYIQ(color);
+        card.innerHTML = `
+            <span class="delete-event" onclick="this.parentElement.remove(); autoSave();">×</span>
+            <strong>${title}</strong>
+        `;
+        return card;
+    }
+
+    function addColumn() {
+        columnHeaders.push("Cột Mới " + columnHeaders.length);
+        buildTable();
+        autoSave();
+    }
+
+    function deleteColumn(index) {
+        columnHeaders.splice(index, 1);
+        // Cần xóa triệt để data map cũ tránh lệch dòng cột
+        cellData = {}; 
+        buildTable();
+        autoSave();
+    }
+
+    function addRow() {
+        rowHours.push("Khung Giờ Mới");
+        buildTable();
+        autoSave();
+    }
+
+    function deleteRow(index) {
+        rowHours.splice(index, 1);
+        cellData = {};
+        buildTable();
+        autoSave();
+    }
+
+    function updateColName(index, newText) {
+        columnHeaders[index] = newText.trim() || "Trống";
+        updateToolDropdowns();
+        autoSave();
+    }
+
+    function updateRowName(index, newText) {
+        rowHours[index] = newText.trim() || "Trống";
+        updateToolDropdowns();
+        autoSave();
+    }
+
+    function updateToolDropdowns() {
+        const colSelect = document.getElementById('select-col-dest');
+        const rowSelect = document.getElementById('select-row-dest');
+        colSelect.innerHTML = ''; rowSelect.innerHTML = '';
+
+        columnHeaders.forEach((col, index) => {
+            if (index > 0) {
+                let opt = document.createElement('option');
+                opt.value = index; opt.textContent = col;
+                colSelect.appendChild(opt);
+            }
+        });
+        rowHours.forEach((row, index) => {
+            let opt = document.createElement('option');
+            opt.value = index; opt.textContent = row;
+            rowSelect.appendChild(opt);
+        });
+    }
+
+    function addEventFromTools() {
+        const title = document.getElementById('event-title').value.trim();
+        const colIndex = document.getElementById('select-col-dest').value;
+        const rowIndex = document.getElementById('select-row-dest').value;
+        const color = document.getElementById('event-color').value;
+
+        if (!title) return;
+
+        const targetRow = tableBodyRows.children[rowIndex];
+        if(!targetRow) return;
+        const targetCell = targetRow.children[colIndex];
+
+        targetCell.appendChild(renderCardElement(title, color));
+        document.getElementById('event-title').value = '';
+        autoSave();
+    }
+
+    function resetToDefault() {
+        if(confirm("Xóa hết bộ nhớ để làm lại từ đầu?")) {
+            localStorage.clear();
+            initApp();
+        }
+    }
+
+    function getContrastYIQ(hexcolor){
+        if(hexcolor.startsWith('rgb')) {
+            const rgbValues = hexcolor.match(/\d+/g);
+            var yiq = ((rgbValues[0]*299)+(rgbValues[1]*587)+(rgbValues[2]*114))/1000;
+            return (yiq >= 128) ? '#2d3436' : '#ffffff';
+        }
+        hexcolor = hexcolor.replace("#", "");
+        var r = parseInt(hexcolor.substr(0,2),16);
+        var g = parseInt(hexcolor.substr(2,2),16);
+        var b = parseInt(hexcolor.substr(4,2),16);
+        var yiq = ((r*299)+(g*587)+(b*114))/1000;
+        return (yiq >= 128) ? '#2d3436' : '#ffffff';
+    }
+
+    function exportPDF() {
+        const element = document.getElementById('planner-content');
+        html2pdf().set({
+            margin: 10, filename: 'Thoi-Gian-Bieu.pdf', image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' }
+        }).from(element).save();
+    }
+
+    function exportImage() {
+        const element = document.getElementById('planner-content');
+        html2canvas(element, { scale: 2 }).then(canvas => {
+            const link = document.createElement('a');
+            link.download = 'Thoi-Gian-Bieu.png'; link.href = canvas.toDataURL('image/png'); link.click();
+        });
+    }
+
+    function initApp() {
+        loadData();
+        buildTable();
+    }
+
+    initApp();
+</script>
+
+</body>
+</html>
