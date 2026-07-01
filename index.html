@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flexible Timetable Editor - Fixed Row/Col Add Data Loss</title>
+    <title>Flexible Timetable Editor - Fixed Row/Col Delete Data Loss</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
@@ -321,7 +321,7 @@
         }
     }
 
-    // Hàm đồng bộ và ghi dữ liệu từ giao diện DOM hiện tại vào bộ nhớ cellData
+    // Hàm đồng bộ nội dung từ DOM vào bộ nhớ đệm ẩn
     function syncDOMToMemory() {
         let currentCells = {};
         rowHours.forEach((_, rIdx) => {
@@ -348,7 +348,7 @@
                 }
             }
         });
-        cellData = currentCells; // Đồng bộ trực tiếp vào biến toàn cục trước khi buildTable()
+        cellData = currentCells;
     }
 
     function autoSave() {
@@ -443,7 +443,6 @@
                     calculateDragSelection(lastSelectedCell, td);
                 });
 
-                // Đổ lại data cũ đã lưu từ bộ nhớ memory
                 const cellKey = `${rowIndex}-${i}`;
                 if (cellData[cellKey]) {
                     if (cellData[cellKey].text) {
@@ -539,34 +538,62 @@
     }
 
     function addColumn() {
-        // FIX LỖI: Đồng bộ lập tức dữ liệu text đang gõ dang dở vào bộ nhớ trước khi hủy cấu trúc DOM cũ
         syncDOMToMemory();
         columnHeaders.push("Cột Mới " + columnHeaders.length);
         buildTable();
         autoSave();
     }
 
-    function deleteColumn(index) {
-        syncDOMToMemory();
-        columnHeaders.splice(index, 1);
-        // Làm sạch bộ nhớ tạm thời để phân bổ lại key ma trận hàng-cột mới
-        cellData = {}; 
+    function deleteColumn(deletedColIdx) {
+        syncDOMToMemory(); // Lưu dữ liệu hiện tại trước
+        
+        // Tạo bộ lưu trữ ma trận dịch chuyển tạm thời
+        let shiftedCells = {};
+        rowHours.forEach((_, rIdx) => {
+            let targetNewColIdx = 1;
+            for (let cIdx = 1; cIdx < columnHeaders.length; cIdx++) {
+                if (cIdx === deletedColIdx) continue; // Bỏ qua cột bị xóa
+                
+                const oldKey = `${rIdx}-${cIdx}`;
+                if (cellData[oldKey]) {
+                    shiftedCells[`${rIdx}-${targetNewColIdx}`] = cellData[oldKey];
+                }
+                targetNewColIdx++;
+            }
+        });
+
+        columnHeaders.splice(deletedColIdx, 1);
+        cellData = shiftedCells; // Áp dụng bản đồ dịch chỉ mục mới
         buildTable();
         autoSave();
     }
 
     function addRow() {
-        // FIX LỖI: Đồng bộ lập tức dữ liệu text đang gõ dang dở vào bộ nhớ trước khi hủy cấu trúc DOM cũ
         syncDOMToMemory();
         rowHours.push("Khung Giờ Mới");
         buildTable();
         autoSave();
     }
 
-    function deleteRow(index) {
-        syncDOMToMemory();
-        rowHours.splice(index, 1);
-        cellData = {};
+    function deleteRow(deletedRowIdx) {
+        syncDOMToMemory(); // Lưu dữ liệu hiện tại trước
+        
+        let shiftedCells = {};
+        let targetNewRowIdx = 0;
+        rowHours.forEach((_, rIdx) => {
+            if (rIdx === deletedRowIdx) return; // Bỏ qua hàng bị xóa
+            
+            for (let cIdx = 1; cIdx < columnHeaders.length; cIdx++) {
+                const oldKey = `${rIdx}-${cIdx}`;
+                if (cellData[oldKey]) {
+                    shiftedCells[`${targetNewRowIdx}-${cIdx}`] = cellData[oldKey];
+                }
+            }
+            targetNewRowIdx++;
+        });
+
+        rowHours.splice(deletedRowIdx, 1);
+        cellData = shiftedCells; // Áp dụng bản đồ dịch chỉ mục mới
         buildTable();
         autoSave();
     }
