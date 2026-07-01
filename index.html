@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flexible Timetable Editor - Excel Ctrl Multi-Select</title>
+    <title>Flexible Timetable Editor - Fixed Drag Data Loss</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
@@ -91,6 +91,13 @@
             font-size: 14px;
         }
 
+        input[type="color"] {
+            width: 40px;
+            height: 38px;
+            padding: 2px;
+            cursor: pointer;
+        }
+
         .timetable-wrapper {
             overflow-x: auto;
             border-radius: 12px;
@@ -131,14 +138,23 @@
             font-weight: bold;
         }
 
+        /* Phân vùng gõ văn bản riêng biệt */
+        .cell-editable-text {
+            width: 100%;
+            min-height: 20px;
+            outline: none;
+            text-align: center;
+            word-break: break-word;
+        }
+
         /* Ô nằm trong danh sách được chọn */
         .timetable-cell.selected-cell {
             outline: 2px solid #0984e3;
             outline-offset: -2px;
-            background-color: rgba(9, 132, 227, 0.08) !important;
+            background-color: rgba(9, 132, 227, 0.06) !important;
         }
 
-        /* Nút vuông nhỏ ở góc (Chỉ hiện ở ô được chọn cuối cùng) */
+        /* Nút vuông nhỏ ở góc để kéo copy */
         .fill-handle {
             position: absolute;
             width: 8px;
@@ -152,6 +168,7 @@
             display: none;
         }
 
+        /* Chỉ hiển thị nút kéo ở ô được chọn cuối cùng */
         .timetable-cell.last-selected .fill-handle {
             display: block;
         }
@@ -161,12 +178,6 @@
             background-color: rgba(46, 213, 115, 0.15) !important;
             outline: 2px dashed #2ed573;
             outline-offset: -2px;
-        }
-
-        [contenteditable="true"]:focus {
-            outline: 2px dashed #6c5ce7;
-            background: rgba(108, 92, 231, 0.1);
-            border-radius: 4px;
         }
 
         .btn-delete-node {
@@ -193,6 +204,7 @@
         th:hover .btn-delete-node, tr:hover .btn-delete-node { opacity: 1; }
         .btn-delete-node:hover { background: #d63031; color: white; }
 
+        /* Hộp Sự Kiện */
         .event-card {
             background: #ffeaa7;
             padding: 8px;
@@ -290,7 +302,6 @@
     const tableHeaderRow = document.getElementById('table-header-row');
     const tableBodyRows = document.getElementById('table-body-rows');
 
-    // Quản lý kéo chọn nâng cao
     let isDraggingHandle = false;
     let lastSelectedCell = null; 
 
@@ -322,6 +333,9 @@
                 const cell = targetRow.children[cIdx];
                 if (!cell) continue;
 
+                const textInput = cell.querySelector('.cell-editable-text');
+                let textNode = textInput ? textInput.innerText.trim() : "";
+
                 let events = [];
                 const cards = cell.querySelectorAll('.event-card');
                 cards.forEach(card => {
@@ -330,12 +344,6 @@
                         color: card.style.backgroundColor
                     });
                 });
-                
-                let textNode = "";
-                cell.childNodes.forEach(node => {
-                    if (node.nodeType === Node.TEXT_NODE) textNode += node.textContent;
-                });
-                textNode = textNode.trim();
 
                 if (events.length > 0 || textNode !== "") {
                     currentCells[`${rIdx}-${cIdx}`] = { events, text: textNode };
@@ -379,15 +387,20 @@
             for (let i = 1; i < columnHeaders.length; i++) {
                 const td = document.createElement('td');
                 td.className = 'timetable-cell';
-                td.setAttribute('contenteditable', 'true');
                 td.setAttribute('data-row', rowIndex);
                 td.setAttribute('data-col', i);
 
+                const textDiv = document.createElement('div');
+                textDiv.className = 'cell-editable-text';
+                textDiv.setAttribute('contenteditable', 'true');
+                textDiv.addEventListener('input', autoSave);
+
                 const handle = document.createElement('div');
                 handle.className = 'fill-handle';
+
+                td.appendChild(textDiv);
                 td.appendChild(handle);
 
-                // Xử lý Sự kiện Mousedown hỗ trợ phím Ctrl
                 td.addEventListener('mousedown', function(e) {
                     if (e.target.className === 'fill-handle') {
                         isDraggingHandle = true;
@@ -395,7 +408,6 @@
                         return;
                     }
                     
-                    // Nếu KHÔNG giữ phím Ctrl (hoặc Cmd trên Mac), reset toàn bộ các ô đã chọn trước đó
                     if (!e.ctrlKey && !e.metaKey) {
                         document.querySelectorAll('.timetable-cell').forEach(c => {
                             c.classList.remove('selected-cell');
@@ -403,11 +415,10 @@
                         });
                     }
 
-                    // Đảo ngược trạng thái chọn nếu nhấn lại vào ô cũ khi đang giữ Ctrl
                     if (td.classList.contains('selected-cell') && (e.ctrlKey || e.metaKey)) {
                         td.classList.remove('selected-cell');
                         td.classList.remove('last-selected');
-                        // Tìm ô được chọn cuối cùng còn lại
+                        
                         const remaining = document.querySelectorAll('.timetable-cell.selected-cell');
                         if (remaining.length > 0) {
                             lastSelectedCell = remaining[remaining.length - 1];
@@ -431,11 +442,11 @@
                 const cellKey = `${rowIndex}-${i}`;
                 if (cellData[cellKey]) {
                     if (cellData[cellKey].text) {
-                        td.appendChild(document.createTextNode(cellData[cellKey].text));
+                        textDiv.innerText = cellData[cellKey].text;
                     }
                     if (cellData[cellKey].events) {
                         cellData[cellKey].events.forEach(ev => {
-                            td.appendChild(renderCardElement(ev.title, ev.color));
+                            td.insertBefore(renderCardElement(ev.title, ev.color), handle);
                         });
                     }
                 }
@@ -447,7 +458,7 @@
         updateToolDropdowns();
     }
 
-    // Hoàn tất hành động kéo thả copy nội dung đa ô
+    // Hoàn tất thao tác thả chuột và nhân bản tuần hoàn dữ liệu Excel
     window.addEventListener('mouseup', function() {
         if (isDraggingHandle && lastSelectedCell) {
             const selectedSources = Array.from(document.querySelectorAll('.timetable-cell.selected-cell'));
@@ -455,30 +466,29 @@
 
             if (selectedSources.length > 0 && targets.length > 0) {
                 targets.forEach((cell, index) => {
-                    // Cơ chế lặp tuần hoàn nội dung từ danh sách các ô nguồn được chọn bằng Ctrl
                     const sourceCell = selectedSources[index % selectedSources.length];
                     
-                    // Xóa trắng ô đích trước khi ghi đè dữ liệu mới
+                    // FIX LỖI: Nếu ô đích chính là một trong những ô nguồn đang được chọn thì bỏ qua, KHÔNG xóa dữ liệu để tránh mất nội dung gốc
+                    if (selectedSources.includes(cell)) return;
+
+                    // Chỉ xóa trắng và copy đè đối với các ô đích mới hoàn toàn nằm bên ngoài vùng chọn gốc
                     cell.querySelectorAll('.event-card').forEach(el => el.remove());
-                    cell.childNodes.forEach(node => {
-                        if (node.nodeType === Node.TEXT_NODE) node.remove();
-                    });
+                    const targetTextDiv = cell.querySelector('.cell-editable-text');
+                    if (targetTextDiv) targetTextDiv.innerText = "";
 
-                    // Lấy text và thẻ từ ô nguồn tương ứng
+                    const sourceTextDiv = sourceCell.querySelector('.cell-editable-text');
+                    const textToCopy = sourceTextDiv ? sourceTextDiv.innerText.trim() : "";
                     const cardsToCopy = sourceCell.querySelectorAll('.event-card');
-                    let textToCopy = "";
-                    sourceCell.childNodes.forEach(node => {
-                        if (node.nodeType === Node.TEXT_NODE) textToCopy += node.textContent;
-                    });
-                    textToCopy = textToCopy.trim();
 
-                    if (textToCopy) {
-                        cell.appendChild(document.createTextNode(textToCopy));
+                    if (textToCopy && targetTextDiv) {
+                        targetTextDiv.innerText = textToCopy;
                     }
+                    
+                    const handleNode = cell.querySelector('.fill-handle');
                     cardsToCopy.forEach(card => {
                         const title = card.querySelector('strong').innerText;
                         const color = card.style.backgroundColor;
-                        cell.appendChild(renderCardElement(title, color));
+                        cell.insertBefore(renderCardElement(title, color), handleNode);
                     });
                 });
             }
@@ -595,8 +605,9 @@
         const targetRow = tableBodyRows.children[rowIndex];
         if(!targetRow) return;
         const targetCell = targetRow.children[colIndex];
+        const handleNode = targetCell.querySelector('.fill-handle');
 
-        targetCell.appendChild(renderCardElement(title, color));
+        targetCell.insertBefore(renderCardElement(title, color), handleNode);
         document.getElementById('event-title').value = '';
         autoSave();
     }
