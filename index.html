@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flexible Timetable Editor - Bản Sửa Lỗi Tự Động Lưu</title>
+    <title>Flexible Timetable Editor - Excel Ctrl Multi-Select</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
@@ -91,25 +91,20 @@
             font-size: 14px;
         }
 
-        input[type="color"] {
-            width: 40px;
-            height: 38px;
-            padding: 2px;
-            cursor: pointer;
-        }
-
         .timetable-wrapper {
             overflow-x: auto;
             border-radius: 12px;
             background: #fff;
             box-shadow: 0 4px 15px rgba(0,0,0,0.05);
             padding: 10px;
+            position: relative;
         }
 
         .timetable {
             width: 100%;
             border-collapse: collapse;
             min-width: 900px;
+            user-select: none;
         }
 
         .timetable th, .timetable td {
@@ -136,6 +131,38 @@
             font-weight: bold;
         }
 
+        /* Ô nằm trong danh sách được chọn */
+        .timetable-cell.selected-cell {
+            outline: 2px solid #0984e3;
+            outline-offset: -2px;
+            background-color: rgba(9, 132, 227, 0.08) !important;
+        }
+
+        /* Nút vuông nhỏ ở góc (Chỉ hiện ở ô được chọn cuối cùng) */
+        .fill-handle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #0984e3;
+            border: 1px solid white;
+            bottom: -4px;
+            right: -4px;
+            cursor: crosshair;
+            z-index: 10;
+            display: none;
+        }
+
+        .timetable-cell.last-selected .fill-handle {
+            display: block;
+        }
+
+        /* Vùng hiển thị xem trước khi kéo chuột qua */
+        .timetable-cell.drag-selecting {
+            background-color: rgba(46, 213, 115, 0.15) !important;
+            outline: 2px dashed #2ed573;
+            outline-offset: -2px;
+        }
+
         [contenteditable="true"]:focus {
             outline: 2px dashed #6c5ce7;
             background: rgba(108, 92, 231, 0.1);
@@ -160,12 +187,12 @@
             font-weight: bold;
             opacity: 0;
             transition: opacity 0.2s;
+            z-index: 5;
         }
 
         th:hover .btn-delete-node, tr:hover .btn-delete-node { opacity: 1; }
         .btn-delete-node:hover { background: #d63031; color: white; }
 
-        /* Hộp Sự Kiện */
         .event-card {
             background: #ffeaa7;
             padding: 8px;
@@ -258,10 +285,14 @@
 
     let columnHeaders = [];
     let rowHours = [];
-    let cellData = {}; // Object lưu data các ô: {"row-col": [{title, color}]}
+    let cellData = {}; 
 
     const tableHeaderRow = document.getElementById('table-header-row');
     const tableBodyRows = document.getElementById('table-body-rows');
+
+    // Quản lý kéo chọn nâng cao
+    let isDraggingHandle = false;
+    let lastSelectedCell = null; 
 
     function loadData() {
         const storedCols = localStorage.getItem('v2_timetable_cols');
@@ -283,7 +314,6 @@
         localStorage.setItem('v2_timetable_cols', JSON.stringify(columnHeaders));
         localStorage.setItem('v2_timetable_rows', JSON.stringify(rowHours));
         
-        // Quét lại toàn bộ bảng để trích xuất data thô và lưu
         let currentCells = {};
         rowHours.forEach((_, rIdx) => {
             for (let cIdx = 1; cIdx < columnHeaders.length; cIdx++) {
@@ -301,7 +331,6 @@
                     });
                 });
                 
-                // Lưu cả text gõ trực tiếp bên ngoài thẻ card
                 let textNode = "";
                 cell.childNodes.forEach(node => {
                     if (node.nodeType === Node.TEXT_NODE) textNode += node.textContent;
@@ -322,7 +351,6 @@
     }
 
     function buildTable() {
-        // 1. Dựng Columns
         tableHeaderRow.innerHTML = '';
         columnHeaders.forEach((colName, colIndex) => {
             const th = document.createElement('th');
@@ -337,7 +365,6 @@
             tableHeaderRow.appendChild(th);
         });
 
-        // 2. Dựng Rows
         tableBodyRows.innerHTML = '';
         rowHours.forEach((rowName, rowIndex) => {
             const tr = document.createElement('tr');
@@ -353,9 +380,54 @@
                 const td = document.createElement('td');
                 td.className = 'timetable-cell';
                 td.setAttribute('contenteditable', 'true');
-                td.setAttribute('oninput', 'autoSave()');
+                td.setAttribute('data-row', rowIndex);
+                td.setAttribute('data-col', i);
 
-                // Đổ lại data cũ từ Object thô vào ô
+                const handle = document.createElement('div');
+                handle.className = 'fill-handle';
+                td.appendChild(handle);
+
+                // Xử lý Sự kiện Mousedown hỗ trợ phím Ctrl
+                td.addEventListener('mousedown', function(e) {
+                    if (e.target.className === 'fill-handle') {
+                        isDraggingHandle = true;
+                        e.preventDefault();
+                        return;
+                    }
+                    
+                    // Nếu KHÔNG giữ phím Ctrl (hoặc Cmd trên Mac), reset toàn bộ các ô đã chọn trước đó
+                    if (!e.ctrlKey && !e.metaKey) {
+                        document.querySelectorAll('.timetable-cell').forEach(c => {
+                            c.classList.remove('selected-cell');
+                            c.classList.remove('last-selected');
+                        });
+                    }
+
+                    // Đảo ngược trạng thái chọn nếu nhấn lại vào ô cũ khi đang giữ Ctrl
+                    if (td.classList.contains('selected-cell') && (e.ctrlKey || e.metaKey)) {
+                        td.classList.remove('selected-cell');
+                        td.classList.remove('last-selected');
+                        // Tìm ô được chọn cuối cùng còn lại
+                        const remaining = document.querySelectorAll('.timetable-cell.selected-cell');
+                        if (remaining.length > 0) {
+                            lastSelectedCell = remaining[remaining.length - 1];
+                            lastSelectedCell.classList.add('last-selected');
+                        } else {
+                            lastSelectedCell = null;
+                        }
+                    } else {
+                        document.querySelectorAll('.timetable-cell').forEach(c => c.classList.remove('last-selected'));
+                        td.classList.add('selected-cell');
+                        td.classList.add('last-selected');
+                        lastSelectedCell = td;
+                    }
+                });
+
+                td.addEventListener('mouseenter', function() {
+                    if (!isDraggingHandle || !lastSelectedCell) return;
+                    calculateDragSelection(lastSelectedCell, td);
+                });
+
                 const cellKey = `${rowIndex}-${i}`;
                 if (cellData[cellKey]) {
                     if (cellData[cellKey].text) {
@@ -373,6 +445,73 @@
         });
 
         updateToolDropdowns();
+    }
+
+    // Hoàn tất hành động kéo thả copy nội dung đa ô
+    window.addEventListener('mouseup', function() {
+        if (isDraggingHandle && lastSelectedCell) {
+            const selectedSources = Array.from(document.querySelectorAll('.timetable-cell.selected-cell'));
+            const targets = Array.from(document.querySelectorAll('.timetable-cell.drag-selecting'));
+
+            if (selectedSources.length > 0 && targets.length > 0) {
+                targets.forEach((cell, index) => {
+                    // Cơ chế lặp tuần hoàn nội dung từ danh sách các ô nguồn được chọn bằng Ctrl
+                    const sourceCell = selectedSources[index % selectedSources.length];
+                    
+                    // Xóa trắng ô đích trước khi ghi đè dữ liệu mới
+                    cell.querySelectorAll('.event-card').forEach(el => el.remove());
+                    cell.childNodes.forEach(node => {
+                        if (node.nodeType === Node.TEXT_NODE) node.remove();
+                    });
+
+                    // Lấy text và thẻ từ ô nguồn tương ứng
+                    const cardsToCopy = sourceCell.querySelectorAll('.event-card');
+                    let textToCopy = "";
+                    sourceCell.childNodes.forEach(node => {
+                        if (node.nodeType === Node.TEXT_NODE) textToCopy += node.textContent;
+                    });
+                    textToCopy = textToCopy.trim();
+
+                    if (textToCopy) {
+                        cell.appendChild(document.createTextNode(textToCopy));
+                    }
+                    cardsToCopy.forEach(card => {
+                        const title = card.querySelector('strong').innerText;
+                        const color = card.style.backgroundColor;
+                        cell.appendChild(renderCardElement(title, color));
+                    });
+                });
+            }
+
+            document.querySelectorAll('.timetable-cell').forEach(c => {
+                c.classList.remove('drag-selecting');
+            });
+            autoSave();
+        }
+        isDraggingHandle = false;
+    });
+
+    function calculateDragSelection(startCell, endCell) {
+        const r1 = parseInt(startCell.getAttribute('data-row'));
+        const c1 = parseInt(startCell.getAttribute('data-col'));
+        const r2 = parseInt(endCell.getAttribute('data-row'));
+        const c2 = parseInt(endCell.getAttribute('data-col'));
+
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+
+        document.querySelectorAll('.timetable-cell').forEach(cell => {
+            const r = parseInt(cell.getAttribute('data-row'));
+            const c = parseInt(cell.getAttribute('data-col'));
+
+            if (r >= minR && r <= maxR && c >= minC && c <= maxC) {
+                cell.classList.add('drag-selecting');
+            } else {
+                cell.classList.remove('drag-selecting');
+            }
+        });
     }
 
     function renderCardElement(title, color) {
@@ -396,7 +535,6 @@
 
     function deleteColumn(index) {
         columnHeaders.splice(index, 1);
-        // Cần xóa triệt để data map cũ tránh lệch dòng cột
         cellData = {}; 
         buildTable();
         autoSave();
@@ -469,6 +607,16 @@
             initApp();
         }
     }
+
+    document.addEventListener('mousedown', function(e) {
+        if (!e.target.closest('.timetable-cell')) {
+            document.querySelectorAll('.timetable-cell').forEach(c => {
+                c.classList.remove('selected-cell');
+                c.classList.remove('last-selected');
+            });
+            lastSelectedCell = null;
+        }
+    });
 
     function getContrastYIQ(hexcolor){
         if(hexcolor.startsWith('rgb')) {
