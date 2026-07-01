@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flexible Timetable Editor - Fixed Drag Data Loss</title>
+    <title>Flexible Timetable Editor - Fixed Row/Col Add Data Loss</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
@@ -321,10 +321,8 @@
         }
     }
 
-    function autoSave() {
-        localStorage.setItem('v2_timetable_cols', JSON.stringify(columnHeaders));
-        localStorage.setItem('v2_timetable_rows', JSON.stringify(rowHours));
-        
+    // Hàm đồng bộ và ghi dữ liệu từ giao diện DOM hiện tại vào bộ nhớ cellData
+    function syncDOMToMemory() {
         let currentCells = {};
         rowHours.forEach((_, rIdx) => {
             for (let cIdx = 1; cIdx < columnHeaders.length; cIdx++) {
@@ -350,8 +348,14 @@
                 }
             }
         });
-        
-        localStorage.setItem('v2_timetable_cells', JSON.stringify(currentCells));
+        cellData = currentCells; // Đồng bộ trực tiếp vào biến toàn cục trước khi buildTable()
+    }
+
+    function autoSave() {
+        syncDOMToMemory();
+        localStorage.setItem('v2_timetable_cols', JSON.stringify(columnHeaders));
+        localStorage.setItem('v2_timetable_rows', JSON.stringify(rowHours));
+        localStorage.setItem('v2_timetable_cells', JSON.stringify(cellData));
 
         const status = document.getElementById('save-status');
         status.style.display = 'inline';
@@ -439,6 +443,7 @@
                     calculateDragSelection(lastSelectedCell, td);
                 });
 
+                // Đổ lại data cũ đã lưu từ bộ nhớ memory
                 const cellKey = `${rowIndex}-${i}`;
                 if (cellData[cellKey]) {
                     if (cellData[cellKey].text) {
@@ -458,7 +463,6 @@
         updateToolDropdowns();
     }
 
-    // Hoàn tất thao tác thả chuột và nhân bản tuần hoàn dữ liệu Excel
     window.addEventListener('mouseup', function() {
         if (isDraggingHandle && lastSelectedCell) {
             const selectedSources = Array.from(document.querySelectorAll('.timetable-cell.selected-cell'));
@@ -467,11 +471,8 @@
             if (selectedSources.length > 0 && targets.length > 0) {
                 targets.forEach((cell, index) => {
                     const sourceCell = selectedSources[index % selectedSources.length];
-                    
-                    // FIX LỖI: Nếu ô đích chính là một trong những ô nguồn đang được chọn thì bỏ qua, KHÔNG xóa dữ liệu để tránh mất nội dung gốc
                     if (selectedSources.includes(cell)) return;
 
-                    // Chỉ xóa trắng và copy đè đối với các ô đích mới hoàn toàn nằm bên ngoài vùng chọn gốc
                     cell.querySelectorAll('.event-card').forEach(el => el.remove());
                     const targetTextDiv = cell.querySelector('.cell-editable-text');
                     if (targetTextDiv) targetTextDiv.innerText = "";
@@ -538,25 +539,32 @@
     }
 
     function addColumn() {
+        // FIX LỖI: Đồng bộ lập tức dữ liệu text đang gõ dang dở vào bộ nhớ trước khi hủy cấu trúc DOM cũ
+        syncDOMToMemory();
         columnHeaders.push("Cột Mới " + columnHeaders.length);
         buildTable();
         autoSave();
     }
 
     function deleteColumn(index) {
+        syncDOMToMemory();
         columnHeaders.splice(index, 1);
+        // Làm sạch bộ nhớ tạm thời để phân bổ lại key ma trận hàng-cột mới
         cellData = {}; 
         buildTable();
         autoSave();
     }
 
     function addRow() {
+        // FIX LỖI: Đồng bộ lập tức dữ liệu text đang gõ dang dở vào bộ nhớ trước khi hủy cấu trúc DOM cũ
+        syncDOMToMemory();
         rowHours.push("Khung Giờ Mới");
         buildTable();
         autoSave();
     }
 
     function deleteRow(index) {
+        syncDOMToMemory();
         rowHours.splice(index, 1);
         cellData = {};
         buildTable();
